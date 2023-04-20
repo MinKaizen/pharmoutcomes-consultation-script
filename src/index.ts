@@ -1,9 +1,24 @@
 const { chromium, selectors } = require('playwright');
-const args = require('yargs').argv;
+const yargs = require('yargs');
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
 require('dotenv').config();
+
+const argv = yargs
+  .option('dry-run', {
+    description: 'Run without without submitting, but still write to output file',
+    type: 'boolean',
+    default: false
+  })
+  .option('debug', {
+    description: 'Run without submitting, and pause after filling data',
+    type: 'boolean',
+    default: false
+  })
+  .help()
+  .alias('help', 'h')
+  .argv;
 
 class PatientNotFoundError extends Error { }
 class MedicineNotFoundError extends Error { }
