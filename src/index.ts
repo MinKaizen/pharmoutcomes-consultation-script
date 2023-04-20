@@ -5,8 +5,8 @@ const path = require('path');
 const csv = require('csv-parser');
 require('dotenv').config();
 
-class PatientNotFoundError extends Error {}
-class MedicineNotFoundError extends Error {}
+class PatientNotFoundError extends Error { }
+class MedicineNotFoundError extends Error { }
 
 const timestamp = getTimestamp()
 
@@ -18,18 +18,42 @@ async function main() {
     process.exit(1);
   }
 
+  const csvData = await readInputFile(process.env.inputFilePath)
   let page = await newPage()
   await login(page, process.env.username, process.env.password)
-  await goToConsultations(page)
 
-  if (page.url().includes('passcode?enter')) {
-    await handleSecretWord(page, process.env.secret)
+  for (let i = 0; i < csvData.length; i++) {
+    console.log(csvData[i])
+    try {
+      await fillConsultation(page, csvData[i])
+      writeOutput(timestamp, { ...csvData[i], status: 'Success' })
+    } catch (e) {
+      if (e instanceof PatientNotFoundError) {
+        bigError(`Could not find patient: ${csvData[i].searchName}`)
+        await page.pause()
+        console.log(`Skipping row ${i}...`)
+        writeOutput(timestamp, { ...csvData[i], status: 'Name not found' })
+        console.log(``)
+        continue
+      } else if (e instanceof MedicineNotFoundError) {
+        bigError(`Could not find medicine: ${csvData[i].searchMedication}`)
+        await page.pause()
+        console.log(`Skipping row ${i}...`)
+        writeOutput(timestamp, { ...csvData[i], status: 'Medicine not found' })
+        console.log(``)
+        continue
+      } else {
+        bigError(e)
+      }
+    }
+    await page.pause()
   }
+}
 
-  // Parse the CSV data into an array of objects using the csv-parser package
+async function readInputFile(filepath) {
   const csvData: any[] = await new Promise((resolve, reject) => {
     const data: any[] = [];
-    fs.createReadStream(process.env.inputFilePath)
+    fs.createReadStream(filepath)
       .pipe(csv())
       .on('data', (row) => {
         // Create an object for each row of data
@@ -51,43 +75,15 @@ async function main() {
       });
   });
 
-  for (let i=0; i < csvData.length; i++) {
-    try {
-      await fillConsultation(page, csvData[i])
-      writeOutput(timestamp, {...csvData[i], status: 'Success'})
-    } catch (e) {
-      if (e instanceof PatientNotFoundError) {
-        console.error(`==============================`)
-        console.error(`=============ERROR============`)
-        console.error(`Could not find patient: ${csvData[i].searchName}`)
-        console.error(`=============ERROR============`)
-        console.error(`==============================`)
-        await page.pause()
-        console.log(`Skipping row ${i}...`)
-        writeOutput(timestamp, {...csvData[i], status: 'Name not found'})
-        console.log(``)
-        continue
-      } else if (e instanceof MedicineNotFoundError) {
-        console.error(`==============================`)
-        console.error(`=============ERROR============`)
-        console.error(`Could not find medicine: ${csvData[i].searchMedication}`)
-        console.error(`=============ERROR============`)
-        console.error(`==============================`)
-        await page.pause()
-        console.log(`Skipping row ${i}...`)
-        writeOutput(timestamp, {...csvData[i], status: 'Medicine not found'})
-        console.log(``)
-        continue
-      } else {
-        console.error(`==============================`)
-        console.error(`=============ERROR============`)
-        console.log(e)
-        console.error(`=============ERROR============`)
-        console.error(`==============================`)
-      }
-    }
-    await page.pause()
-  }
+  return csvData
+}
+
+function bigError(e) {
+  console.error(`==============================`)
+  console.error(`=============ERROR============`)
+  console.error(e)
+  console.error(`=============ERROR============`)
+  console.error(`==============================`)
 }
 
 async function registerSelectorLocator() {
@@ -126,12 +122,6 @@ async function login(page, username, password) {
   console.log(``)
 }
 
-async function goToConsultations(page) {
-  console.log(`Navigating to Consultations...`)
-  await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew');
-  console.log(``)
-}
-
 async function handleSecretWord(page, secret) {
   console.log(`Filling in Secret Letters...`)
   const firstSecretLetter = await page.locator('selector=form input[type=password]').nth(0)
@@ -150,13 +140,21 @@ async function secretLetter(secretLetterEl, secret): Promise<string> {
 }
 
 async function fillConsultation(page, data) {
+  console.log(`Navigating to Consultations...`)
+  await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew');
+
+  if (page.url().includes('passcode?enter')) {
+    console.log(`-- Secret Word required...`)
+    await handleSecretWord(page, process.env.secret)
+  }
+
   console.log(`Filling in consultation for ${data.searchName}...`)
   console.log(`-- Date: ${data.date}`)
   await page.getByLabel('Consultation date').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
-  await page.keyboard.type(data.date, {delay: 10})
+  await page.keyboard.type(data.date, { delay: 10 })
   try {
     await page.getByText('PrevNextMarch 2023SuMoTuWeThFrSa 12345678910111213141516171819202122232425262728').waitForElementState('visible', { timeout: 2000 })
   } catch (e) {
@@ -169,14 +167,14 @@ async function fillConsultation(page, data) {
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
-  await page.keyboard.type(data.searchName, {delay: 10})
+  await page.keyboard.type(data.searchName, { delay: 10 })
 
   console.log(`-- Waiting for patient list...`)
-  await page.locator('selector=#ui-id-1').first().click({timeout: 10000, trial: true})
+  await page.locator('selector=#ui-id-1').first().click({ timeout: 10000, trial: true })
 
   try {
     console.log(`-- Selecting patient...`)
-    await page.locator('selector=#ui-id-1 li a').filter({ hasText: data.dob }).first().click({timeout: 3000})
+    await page.locator('selector=#ui-id-1 li a').filter({ hasText: data.dob }).first().click({ timeout: 3000 })
     console.log(`-- Patient Found: ${data.searchName}`)
   } catch (e) {
     console.log(e)
@@ -214,20 +212,20 @@ async function fillConsultation(page, data) {
 
   console.log(`-- Save and enter another: yes`)
   await page.getByLabel('Save and enter another').click()
-  
+
   console.log(`-- Medication: ${data.searchMedication}`)
   await page.getByLabel('Medication supplied', { exact: true }).click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
-  await page.keyboard.type(data.searchMedication, {delay: 10})
-  
+  await page.keyboard.type(data.searchMedication, { delay: 10 })
+
   console.log(`-- Waiting for medication popup...`)
-  await page.locator('selector=#ui-id-2').first().click({timeout: 10000, trial: true})
+  await page.locator('selector=#ui-id-2').first().click({ timeout: 10000, trial: true })
 
   try {
     console.log(`-- Selecting Medication...`)
-    await page.locator('selector=#ui-id-2 li a').first().click({timeout: 3000})
+    await page.locator('selector=#ui-id-2 li a').first().click({ timeout: 3000 })
     console.log(`-- Medication Selected!`)
     await page.pause()
   } catch (e) {
