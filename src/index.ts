@@ -19,34 +19,47 @@ async function main() {
   }
 
   const csvData = await readInputFile(process.env.inputFilePath)
+  let toRegister: Array<Object> = []
   let page = await newPage()
   await login(page, process.env.username, process.env.password)
 
+  // Round 1: Fill in all the consultations, 
+  // note down any patients that need registering
   for (let i = 0; i < csvData.length; i++) {
+    toRegister.push(csvData[i])
     try {
       await fillConsultation(page, csvData[i])
       writeOutput(timestamp, { ...csvData[i], status: 'Success' })
     } catch (e) {
       if (e instanceof PatientNotFoundError) {
-        bigError(`Could not find patient: ${csvData[i].searchName}`)
-        await page.pause()
-        console.log(`Skipping row ${i}...`)
-        writeOutput(timestamp, { ...csvData[i], status: 'Name not found' })
+        console.log(`Could not find patient:`)
+        console.log(`-- ${csvData[i].searchName} (${csvData[i].dob})`)
+        toRegister.push(csvData[i])
+        console.log(`(added to list of patients to register later...)`)
         console.log(``)
-        continue
       } else if (e instanceof MedicineNotFoundError) {
         bigError(`Could not find medicine: ${csvData[i].searchMedication}`)
-        await page.pause()
         console.log(`Skipping row ${i}...`)
         writeOutput(timestamp, { ...csvData[i], status: 'Medicine not found' })
         console.log(``)
-        continue
       } else {
         bigError(e)
       }
     }
     await page.pause()
   }
+
+  // Round 2: Register all the patients that need registering
+  for (let data of toRegister) {
+    try {
+      await fillRegistration(page, data)
+      await fillConsultation(page, data)
+    } catch (e) {
+      bigError(e)
+    }
+    await page.pause()
+  }
+
 }
 
 async function readInputFile(filepath) {
@@ -231,6 +244,81 @@ async function fillConsultation(page, data) {
     throw new MedicineNotFoundError(`Could not find medicine: ${data.searchMedication}`)
   }
   // await page.getByRole('button', { name: 'Save' }).click()
+}
+
+async function fillRegistration(page, data) {
+  console.log(`Navigating to Registration...`)
+  await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122578&xid=122578&xact=provisionnew')
+  await handleSecretWord(page, process.env.secret)
+
+  console.log(`Filling in registration for ${data.firstName} ${data.lastName}...`)
+  await page.getByLabel('Provision Date').click()
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(data.date, { delay: 10 })
+  try {
+    await page.locator('selector=#ui-datepicker-div').first().click({ timeout: 1000, trial: true })
+  } catch (e) {
+    // Continue
+  }
+  await page.keyboard.press('Tab')
+
+  console.log(`-- Name: ${data.firstName} ${data.lastName}`)
+  await page.getByLabel('Name').fill(`${data.firstName} ${data.lastName}`)
+
+  console.log(`-- Date of Birth: ${data.date}`)
+  await page.getByLabel('Date of Birth').click()
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(data.date, { delay: 10 })
+  try {
+    await page.locator('selector=#ui-datepicker-div').first().click({ timeout: 1000, trial: true })
+  } catch (e) {
+    // Continue
+  }
+  await page.keyboard.press('Tab')
+
+  if (data.gender == 'Male') {
+    console.log(`Gender: Male`)
+    await page.getByLabel('Male', { exact: true }).click()
+  } else if (data.gender == 'Female') {
+    console.log(`Gender: Female`)
+    await page.getByLabel('Female').click()
+  } else {
+    console.log(`Gender: Trans`)
+    await page.getByLabel('Trans').click()
+  }
+  
+  console.log(`Ethnicity: Not stated`)
+  await page.getByRole('combobox', { name: 'Ethnicity' }).selectOption('Not stated')
+
+  console.log(`-- Postcode: ${data.postcode}`)
+  await page.getByLabel('Postcode').fill(data.postcode)
+  
+  console.log(`-- Address: ${data.address}`)
+  await page.getByLabel('Address').fill(data.address)
+  
+  console.log(`-- Consent Obtained: Yes`)
+  await page.getByLabel('Yes').click()
+
+  console.log(`-- Entering GP Practice...`)
+  await page.getByLabel('GP Practice').click()
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(data.practice, { delay: 10 })
+  console.log(`-- Waiting for practice popup...`)
+  await page.locator('selector=#ui-id-3').first().click({ timeout: 10000, trial: true })
+  console.log(`-- Selecting Practice...`)
+  await page.locator('selector=#ui-id-3 li a').first().click({ timeout: 3000 })
+  console.log(`-- Practice Selected!`)
+
+  console.log(`-- Save and enter another: yes`)
+  await page.getByLabel('Save and enter another').click()
+
+  // await page.locator('selector=#submit').click()
 }
 
 function writeOutput(timestamp: string, data): void {
