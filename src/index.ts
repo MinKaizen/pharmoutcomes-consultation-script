@@ -184,11 +184,6 @@ async function fillConsultation(page, data) {
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
   await page.keyboard.type(data.date, { delay: 10 })
-  try {
-    await page.getByText('PrevNextMarch 2023SuMoTuWeThFrSa 12345678910111213141516171819202122232425262728').waitForElementState('visible', { timeout: 2000 })
-  } catch (e) {
-    // Date picker not visible, continue
-  }
   await page.keyboard.press('Tab')
 
   console.log(`-- Patient Name: ${data.searchName}`)
