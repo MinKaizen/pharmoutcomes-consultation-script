@@ -253,20 +253,11 @@ function writeOutput(timestamp: string, data): void {
   if (!fileExists) {
     const header = Object.keys(data).join(',');
     fs.writeFileSync(filePath, `${header}\n`);
-    const keys = Object.keys(data);
-    const values = keys.map((key) => data[key]);
-    const line = values.join(',');
-    fs.appendFileSync(filePath, `${line}\n`);
   }
-
-  fs.createReadStream(filePath)
-    .pipe(csv())
-    .on('end', () => {
-      const keys = Object.keys(data);
-      const values = keys.map((key) => data[key]);
-      const line = values.join(',');
-      fs.appendFileSync(filePath, `${line}\n`);
-    });
+  const keys = Object.keys(data);
+  const values = keys.map((key) => data[key]);
+  const line = values.join(',');
+  fs.appendFileSync(filePath, `${line}\n`);
 }
 
 function getTimestamp(): string {
