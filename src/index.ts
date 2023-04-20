@@ -23,7 +23,6 @@ async function main() {
   await login(page, process.env.username, process.env.password)
 
   for (let i = 0; i < csvData.length; i++) {
-    console.log(csvData[i])
     try {
       await fillConsultation(page, csvData[i])
       writeOutput(timestamp, { ...csvData[i], status: 'Success' })
@@ -123,6 +122,9 @@ async function login(page, username, password) {
 }
 
 async function handleSecretWord(page, secret) {
+  if (!page.url().includes('passcode?enter')) {
+    return
+  }
   console.log(`Filling in Secret Letters...`)
   const firstSecretLetter = await page.locator('selector=form input[type=password]').nth(0)
   const secondSecretLetter = await page.locator('selector=form input[type=password]').nth(1)
@@ -142,11 +144,7 @@ async function secretLetter(secretLetterEl, secret): Promise<string> {
 async function fillConsultation(page, data) {
   console.log(`Navigating to Consultations...`)
   await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew');
-
-  if (page.url().includes('passcode?enter')) {
-    console.log(`-- Secret Word required...`)
-    await handleSecretWord(page, process.env.secret)
-  }
+  await handleSecretWord(page, process.env.secret)
 
   console.log(`Filling in consultation for ${data.searchName}...`)
   console.log(`-- Date: ${data.date}`)
