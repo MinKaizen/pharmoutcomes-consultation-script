@@ -9,6 +9,8 @@ class PatientNotFoundError extends Error { }
 class MedicineNotFoundError extends Error { }
 
 const timestamp = getTimestamp()
+const timeStartMilliseconds = Date.now()
+const secondsElapsed = () => Math.round((Date.now() - timeStartMilliseconds) / 1000)
 
 async function main() {
   console.time('main')
