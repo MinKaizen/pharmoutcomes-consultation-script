@@ -3,11 +3,7 @@ const args = require('yargs').argv;
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
-
-
-const username = 'FTK41-manager'
-const password = 'PullingPenis2023'
-const secret = 'malchy'
+require('dotenv').config();
 
 class PatientNotFoundError extends Error {}
 class MedicineNotFoundError extends Error {}
@@ -17,25 +13,23 @@ const timestamp = getTimestamp()
 async function main() {
   console.time('main')
 
-  const filePath = 'inputs/data.csv';
-
-  if (!fs.existsSync(filePath)) {
-    console.error(`File not found: ${filePath}`);
+  if (!fs.existsSync(process.env.inputFilePath)) {
+    console.error(`File not found: ${process.env.inputFilePath}`);
     process.exit(1);
   }
 
   let page = await newPage()
-  await login(page, username, password)
+  await login(page, process.env.username, process.env.password)
   await goToConsultations(page)
 
   if (page.url().includes('passcode?enter')) {
-    await handleSecretWord(page, secret)
+    await handleSecretWord(page, process.env.secret)
   }
 
   // Parse the CSV data into an array of objects using the csv-parser package
   const csvData: any[] = await new Promise((resolve, reject) => {
     const data: any[] = [];
-    fs.createReadStream(filePath)
+    fs.createReadStream(process.env.inputFilePath)
       .pipe(csv())
       .on('data', (row) => {
         // Create an object for each row of data
@@ -140,23 +134,6 @@ async function handleSecretWord(page, secret) {
   await secondSecretLetter.fill(await secretLetter(secondSecretLetter, secret))
   await page.getByRole('button', { name: 'Submit' }).click()
   console.log(``)
-}
-
-function parseArgs() {
-  console.log('Checking script args...')
-  const requiredArgs = ['input', 'username', 'password', 'secret']
-
-  for (const argName of requiredArgs) {
-    if (args[argName]) {
-      console.log(`-- ${argName}: ${args[argName]}`)
-    } else {
-      console.log(`[${argName}] is missing from script args!`)
-      console.log('Aborting...')
-      process.exit()
-    }
-  }
-
-  return args
 }
 
 async function secretLetter(secretLetterEl, secret): Promise<string> {
