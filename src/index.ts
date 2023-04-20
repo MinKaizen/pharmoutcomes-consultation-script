@@ -238,7 +238,6 @@ async function fillConsultation(page, data) {
     console.log(`-- Selecting Medication...`)
     await page.locator('selector=#ui-id-2 li a').first().click({ timeout: 3000 })
     console.log(`-- Medication Selected!`)
-    await page.pause()
   } catch (e) {
     console.log(e)
     throw new MedicineNotFoundError(`Could not find medicine: ${data.searchMedication}`)
