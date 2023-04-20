@@ -78,6 +78,12 @@ async function main() {
         writeOutput(timestamp, {...csvData[i], status: 'Medicine not found'})
         console.log(``)
         continue
+      } else {
+        console.error(`==============================`)
+        console.error(`=============ERROR============`)
+        console.log(e)
+        console.error(`=============ERROR============`)
+        console.error(`==============================`)
       }
     }
     await page.pause()
@@ -145,30 +151,35 @@ async function secretLetter(secretLetterEl, secret): Promise<string> {
 
 async function fillConsultation(page, data) {
   console.log(`Filling in consultation for ${data.searchName}...`)
-  await page.getByLabel('Consultation date').fill(data.date)
   console.log(`-- Date: ${data.date}`)
   await page.getByLabel('Consultation date').click()
-  await page.getByLabel('Consultation date').blur()
-
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(data.date, {delay: 10})
   try {
-    console.log(`-- Closing date picker...`)
-    await page.locator('selector=#ui-datepicker-div').click({timeout: 1000})
-    await page.getByLabel('Patient self access').click()
+    await page.getByText('PrevNextMarch 2023SuMoTuWeThFrSa 12345678910111213141516171819202122232425262728').waitForElementState('visible', { timeout: 2000 })
   } catch (e) {
-    console.log(`-- Date picker already closed`)
+    // Date picker not visible, continue
   }
+  await page.keyboard.press('Tab')
 
   console.log(`-- Patient Name: ${data.searchName}`)
   await page.getByLabel('Patient name').click()
-  await page.getByLabel('Patient name').fill(data.searchName)
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(data.searchName, {delay: 10})
+
+  console.log(`-- Waiting for patient list...`)
+  await page.locator('selector=#ui-id-1').first().click({timeout: 10000, trial: true})
 
   try {
-    console.log(`-- Waiting for patient list...`)
-    await page.locator('selector=#ui-id-1')
-    console.log(`-- Patient List opened!`)
-    await page.locator('selector=#ui-id-1 li a').filter({ hasText: data.dob }).first().click()
-    console.log(`-- Selecting patient: ${data.searchName}`)
+    console.log(`-- Selecting patient...`)
+    await page.locator('selector=#ui-id-1 li a').filter({ hasText: data.dob }).first().click({timeout: 3000})
+    console.log(`-- Patient Found: ${data.searchName}`)
   } catch (e) {
+    console.log(e)
     throw new PatientNotFoundError(`Could not find patient: ${data.searchName}`)
   }
   console.log(`-- Patient found: ${data.searchName}`)
@@ -203,17 +214,24 @@ async function fillConsultation(page, data) {
 
   console.log(`-- Save and enter another: yes`)
   await page.getByLabel('Save and enter another').click()
+  
+  console.log(`-- Medication: ${data.searchMedication}`)
+  await page.getByLabel('Medication supplied', { exact: true }).click()
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(data.searchMedication, {delay: 10})
+  
+  console.log(`-- Waiting for medication popup...`)
+  await page.locator('selector=#ui-id-2').first().click({timeout: 10000, trial: true})
+
   try {
-    console.log(`-- Medication: ${data.searchMedication}`)
-    await page.getByLabel('Medication supplied', { exact: true }).click()
-    await page.getByLabel('Medication supplied', { exact: true }).fill(data.searchMedication)
-    console.log(`-- Waiting for medication popup...`)
-    await page.locator('selector=#ui-id-2')
-    console.log(`-- Medication Popup Opened!`)
-    await page.locator('selector=#ui-id-2 li a').first().click()
+    console.log(`-- Selecting Medication...`)
+    await page.locator('selector=#ui-id-2 li a').first().click({timeout: 3000})
     console.log(`-- Medication Selected!`)
     await page.pause()
   } catch (e) {
+    console.log(e)
     throw new MedicineNotFoundError(`Could not find medicine: ${data.searchMedication}`)
   }
   // await page.getByRole('button', { name: 'Save' }).click()
