@@ -338,7 +338,7 @@ function writeOutput(timestamp: string, data): void {
     fs.writeFileSync(filePath, `${header}\n`);
   }
   const keys = Object.keys(data);
-  const values = keys.map((key) => data[key]);
+  const values = keys.map((key) => typeof data[key] === 'string' ? `"${data[key]}"` : data[key]);
   const line = values.join(',');
   fs.appendFileSync(filePath, `${line}\n`);
 }
