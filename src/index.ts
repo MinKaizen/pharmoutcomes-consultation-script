@@ -45,6 +45,7 @@ async function main() {
         writeOutput(timestamp, { ...csvData[i], status: 'Medicine not found' })
         console.log(``)
       } else {
+        writeOutput(timestamp, { ...csvData[i], status: 'Unhandled Error' })
         bigError(e)
       }
     }
