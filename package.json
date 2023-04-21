@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "npx tsc src/index.ts --outDir dist && node dist/index.js",
+    "quants": "npx tsc src/quants.ts --outDir dist && node dist/quants.js",
     "consultation": "npx tsc src/consultation.ts --outDir dist && node dist/consultation.js"
   },
   "author": "",
