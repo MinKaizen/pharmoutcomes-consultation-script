@@ -1,83 +1,109 @@
 const { chromium, selectors } = require('playwright');
+const { format: dateFormat } = require('date-fns');
 const yargs = require('yargs');
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
+const { createLogger, transports } = require('winston');
+const { combine, printf } = require('winston').format;
 require('dotenv').config();
 
+interface PatientData {
+  searchName: string;
+  date: string;
+  dob: string;
+  staffName: string;
+  staffRole: string;
+  symptom: string;
+  levyStatus: string;
+  quantity: number;
+  searchMedication: string;
+  firstName: string;
+  lastName: string;
+  gender: string;
+  postcode: string;
+  address: string;
+  practice: string;
+  status?: string;
+  time?: number;
+}
+
+// Script Args
 const argv = yargs
-  .option('dry-run', {
+  .option('dryrun', {
     description: 'Run without without submitting, but still write to output file',
     type: 'boolean',
     default: false
   })
-  .option('debug', {
-    description: 'Run without submitting, and pause after filling data',
+  .option('pause', {
+    description: 'Pause after before submitting data',
     type: 'boolean',
     default: false
   })
   .help()
   .alias('help', 'h')
+  .alias('dryrun', 'd')
+  .alias('pause', 'p')
   .argv;
 
+// Environment Variables
+const secret: string = process.env.secret ?? process.exit(1)
+const username: string = process.env.username ?? process.exit(1)
+const password: string = process.env.password ?? process.exit(1)
+const inputFilePath: string = process.env.inputFilePath ?? process.exit(1)
+const outputDir: string = process.env.outputDir ?? process.exit(1)
+
+// Custom Errors
 class PatientNotFoundError extends Error { }
 class MedicineNotFoundError extends Error { }
+class PatientRegisteredButNotFound extends Error { }
 
-const timestamp = getTimestamp()
+// Constants
+const timestamp = dateFormat(new Date(), 'yyyy-MM-dd___HH-mm-ss')
 const timeStartMilliseconds = Date.now()
 const secondsElapsed = () => Math.round((Date.now() - timeStartMilliseconds) / 1000)
+const logger = createLogger({
+  format: combine(
+    printf(info => {
+      return `${info.message}`;
+    })
+  ),
+  transports: [
+    new transports.Console(),
+    new transports.File({ filename: `${outputDir}/${timestamp}.log` })
+  ]
+});
 
+
+// Main Function
 async function main() {
-  console.time('main')
+  // TEMP
+  if (!argv.dryrun) {
+    logger.error(`Running without --dryrun is currently disabled during development. Aborting...`)
+    process.exit(1)
+  }
 
-  if (!fs.existsSync(process.env.inputFilePath)) {
-    console.error(`File not found: ${process.env.inputFilePath}`);
+  if (!fs.existsSync(inputFilePath)) {
+    logger.error(`File not found: ${inputFilePath}`);
     process.exit(1);
   }
 
-  const csvData = await readInputFile(process.env.inputFilePath)
-  let toRegister: Array<Object> = []
-  let page = await newPage()
-  await login(page, process.env.username, process.env.password)
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
 
-  // Round 1: Fill in all the consultations, 
-  // note down any patients that need registering
+  const csvData: Array<PatientData> = await readInputFile(inputFilePath)
+  let page = await newPage()
+  await login(page, username, password)
+
   for (let i = 0; i < csvData.length; i++) {
-    toRegister.push(csvData[i])
     try {
       await fillConsultation(page, csvData[i])
-      writeOutput(timestamp, { ...csvData[i], status: 'Success' })
     } catch (e) {
-      if (e instanceof PatientNotFoundError) {
-        console.log(`Could not find patient:`)
-        console.log(`-- ${csvData[i].searchName} (${csvData[i].dob})`)
-        toRegister.push(csvData[i])
-        console.log(`(added to list of patients to register later...)`)
-        console.log(``)
-      } else if (e instanceof MedicineNotFoundError) {
-        bigError(`Could not find medicine: ${csvData[i].searchMedication}`)
-        console.log(`Skipping row ${i}...`)
-        writeOutput(timestamp, { ...csvData[i], status: 'Medicine not found' })
-        console.log(``)
-      } else {
-        writeOutput(timestamp, { ...csvData[i], status: `Other Error (${e.name}): ${e.message}` })
-        bigError(e)
-      }
+      writeOutput(csvData[i], e.message.replace(/"/g, "'"))
+      bigError(e.message)
     }
-    await page.pause()
   }
-
-  // Round 2: Register all the patients that need registering
-  for (let data of toRegister) {
-    try {
-      await fillRegistration(page, data)
-      await fillConsultation(page, data)
-    } catch (e) {
-      bigError(e)
-    }
-    await page.pause()
-  }
-
 }
 
 async function readInputFile(filepath) {
@@ -109,11 +135,11 @@ async function readInputFile(filepath) {
 }
 
 function bigError(e) {
-  console.error(`==============================`)
-  console.error(`=============ERROR============`)
-  console.error(e)
-  console.error(`=============ERROR============`)
-  console.error(`==============================`)
+  logger.info(`==============================`)
+  logger.info(`=============ERROR============`)
+  logger.info(e)
+  logger.info(`=============ERROR============`)
+  logger.info(`==============================`)
 }
 
 async function registerSelectorLocator() {
@@ -141,44 +167,48 @@ async function newPage() {
 }
 
 async function login(page, username, password) {
-  console.log('Logging into Pharmoutcomes...')
+  logger.info('Logging into Pharmoutcomes...')
   await page.goto('https://pharmoutcomes.org/pharmoutcomes/');
   await page.locator('selector=#login-form-elements input[name=login_name]').fill(username)
   await page.locator('selector=#login-form-elements input[name=login_pwd]').fill(password)
   await page.locator('selector=#login-form-elements input[type=submit]').click()
-  console.log(`-- Switching to Meds2u account...`)
+  logger.info(`-- Switching to Meds2u account...`)
   await page.getByRole('link', { name: 'Stone Pharmacy (Meds2u Limited)' }).click()
 
-  console.log(``)
+  logger.info(``)
 }
 
-async function handleSecretWord(page, secret) {
+async function handleSecretWord(page, secret: string) {
   if (!page.url().includes('passcode?enter')) {
     return
   }
-  console.log(`Filling in Secret Letters...`)
+  logger.info(`Secret word required. Filling in...`)
   const firstSecretLetter = await page.locator('selector=form input[type=password]').nth(0)
   const secondSecretLetter = await page.locator('selector=form input[type=password]').nth(1)
   await firstSecretLetter.fill(await secretLetter(firstSecretLetter, secret))
   await secondSecretLetter.fill(await secretLetter(secondSecretLetter, secret))
   await page.getByRole('button', { name: 'Submit' }).click()
-  console.log(``)
+  logger.info(`-- Secret word submitted`)
 }
 
-async function secretLetter(secretLetterEl, secret): Promise<string> {
+async function secretLetter(secretLetterEl, secret: string): Promise<string> {
   const name = await secretLetterEl.getAttribute('name')
   const letterPosition: number = name.match(/[\w]+(\d)$/)[1]
   const letter = secret[letterPosition - 1]
   return letter
 }
 
-async function fillConsultation(page, data) {
-  console.log(`Navigating to Consultations...`)
+async function fillConsultation(page, data: PatientData, isAfterRegister = false) {
+  logger.info(``)
+  logger.info(`===============================`)
+  logger.info(`Consultation for: ${data.searchName} (${data.dob})`)
+  logger.info(`===============================`)
+  logger.info(`Navigating to Consultations...`)
   await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew');
-  await handleSecretWord(page, process.env.secret)
+  await handleSecretWord(page, secret)
 
-  console.log(`Filling in consultation for ${data.searchName}...`)
-  console.log(`-- Date: ${data.date}`)
+  logger.info(`Filling in Consultation Data...`)
+  logger.info(`-- Date: ${data.date}`)
   await page.getByLabel('Consultation date').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
@@ -186,84 +216,110 @@ async function fillConsultation(page, data) {
   await page.keyboard.type(data.date, { delay: 10 })
   await page.keyboard.press('Tab')
 
-  console.log(`-- Patient Name: ${data.searchName}`)
+  logger.info(`-- Patient Name: ${data.searchName}`)
   await page.getByLabel('Patient name').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
   await page.keyboard.type(data.searchName, { delay: 10 })
 
-  console.log(`-- Waiting for patient list...`)
+  logger.info(`-- Waiting for patient list...`)
   await page.locator('selector=#ui-id-1').first().click({ timeout: 10000, trial: true })
 
   try {
-    console.log(`-- Selecting patient...`)
     await page.locator('selector=#ui-id-1 li a').filter({ hasText: data.dob }).first().click({ timeout: 3000 })
-    console.log(`-- Patient Found: ${data.searchName}`)
+    logger.info(`-- Patient Found: ${data.searchName} (${data.dob})`)
   } catch (e) {
-    console.log(e)
-    throw new PatientNotFoundError(`Could not find patient: ${data.searchName}`)
-  }
-  console.log(`-- Patient found: ${data.searchName}`)
+    logger.info(`-- Patient not found: ${data.searchName} (${data.dob})`)
+    
+    if (isAfterRegister) {
+      throw new PatientRegisteredButNotFound('Patient was registered but not found in the database')
+    }
 
-  console.log(`-- Staff member's name: ${data.staffName}`)
+    await fillRegistration(page, data)
+
+    if (argv.dryrun) {
+      writeOutput(data, 'New patient registered')
+    } else {
+      await fillConsultation(page, data, true)
+    }
+
+    return
+  }
+  logger.info(`-- Staff member's name: ${data.staffName}`)
   await page.getByLabel('Staff Member\'s Name').fill(data.staffName)
 
-  console.log(`-- Staff role: ${data.staffRole}`)
+  logger.info(`-- Staff role: ${data.staffRole}`)
   await page.getByRole('group', { name: 'Pharmacy Staff Role' }).getByLabel('OtherIf Other please state').click()
   await page.locator('input[name="ctrlRadio_867970_Other"]').fill(data.staffRole)
 
-  console.log(`-- Referral Type: Patient self access`)
+  logger.info(`-- Referral Type: Patient self access`)
   await page.getByLabel('Patient self access').click()
 
-  console.log(`-- Symptom: ${data.symptom}`)
+  logger.info(`-- Symptom: ${data.symptom}`)
   await page.getByRole('combobox', { name: 'Presenting symptoms' }).selectOption(data.symptom)
 
-  console.log(`-- Selecting: Up to 10 minutes`)
+  logger.info(`-- Consulation Time: Up to 10 minutes`)
   await page.getByLabel('Up to 10 minutes').click()
 
-  console.log(`-- Selecting: Patient has been supplied medicine under the service`)
+  logger.info(`-- Type: Patient has been supplied medicine under the service`)
   await page.getByLabel('Patient has been supplied medicine under the service').click()
 
-  console.log(`-- Levy Status: ${data.levyStatus}`)
+  logger.info(`-- Levy Status: ${data.levyStatus}`)
   await page.getByRole('combobox', { name: 'Levy Status' }).selectOption(data.levyStatus)
 
-  console.log(`-- Quantity: ${data.quantity}`)
+  logger.info(`-- Quantity: ${data.quantity}`)
   await page.getByRole('textbox', { name: 'Quantity' }).fill(data.quantity)
 
-  console.log(`-- Referral Advice: no`)
+  logger.info(`-- Referral Advice: no`)
   await page.getByRole('group', { name: 'Referral Advice' }).getByLabel('No', { exact: true }).click()
 
-  console.log(`-- Save and enter another: yes`)
-  await page.getByLabel('Save and enter another').click()
-
-  console.log(`-- Medication: ${data.searchMedication}`)
+  logger.info(`-- Medication: ${data.searchMedication}`)
   await page.getByLabel('Medication supplied', { exact: true }).click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
   await page.keyboard.type(data.searchMedication, { delay: 10 })
 
-  console.log(`-- Waiting for medication popup...`)
+  logger.info(`-- Waiting for medication popup...`)
   await page.locator('selector=#ui-id-2').first().click({ timeout: 10000, trial: true })
 
   try {
-    console.log(`-- Selecting Medication...`)
+    logger.info(`-- Selecting Medication...`)
     await page.locator('selector=#ui-id-2 li a').first().click({ timeout: 3000 })
-    console.log(`-- Medication Selected!`)
+    logger.info(`-- Medication Selected!`)
   } catch (e) {
-    console.log(e)
-    throw new MedicineNotFoundError(`Could not find medicine: ${data.searchMedication}`)
+    logger.info(`-- Medication not found: ${data.searchMedication}`)
+    throw new MedicineNotFoundError(`Medicine not found`)
   }
-  // await page.getByRole('button', { name: 'Save' }).click()
+
+  if (argv.pause) {
+    await page.pause()
+  }
+
+  if (argv.dryrun) {
+    logger.info(`-- Dry run, not submitting...`)
+  } else {
+    logger.info(`-- Submitting...`)
+    await page.getByRole('button', { name: 'Save' }).click()
+    // TODO: check for redirect to success page
+  }
+
+  logger.info(`-- Success!`)
+  writeOutput(data, 'Success')
 }
 
-async function fillRegistration(page, data) {
-  console.log(`Navigating to Registration...`)
+async function fillRegistration(page, data: PatientData) {
+  logger.info(``)
+  logger.info(`===============================`)
+  logger.info(`Registration for: ${data.firstName} ${data.lastName} (${data.dob})`)
+  logger.info(`===============================`)
+  logger.info(`Navigating to Registration...`)
   await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122578&xid=122578&xact=provisionnew')
-  await handleSecretWord(page, process.env.secret)
+  await handleSecretWord(page, secret)
 
-  console.log(`Filling in registration for ${data.firstName} ${data.lastName}...`)
+  logger.info(`Filling in registration data...`)
+  logger.info(`Provision date: ${data.date}`)
   await page.getByLabel('Provision Date').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
@@ -276,10 +332,10 @@ async function fillRegistration(page, data) {
   }
   await page.keyboard.press('Tab')
 
-  console.log(`-- Name: ${data.firstName} ${data.lastName}`)
+  logger.info(`-- Name: ${data.firstName} ${data.lastName}`)
   await page.getByLabel('Name').fill(`${data.firstName} ${data.lastName}`)
 
-  console.log(`-- Date of Birth: ${data.date}`)
+  logger.info(`-- Date of Birth: ${data.date}`)
   await page.getByLabel('Date of Birth').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
@@ -293,71 +349,70 @@ async function fillRegistration(page, data) {
   await page.keyboard.press('Tab')
 
   if (data.gender == 'Male') {
-    console.log(`Gender: Male`)
+    logger.info(`Gender: Male`)
     await page.getByLabel('Male', { exact: true }).click()
   } else if (data.gender == 'Female') {
-    console.log(`Gender: Female`)
+    logger.info(`Gender: Female`)
     await page.getByLabel('Female').click()
   } else {
-    console.log(`Gender: Trans`)
+    logger.info(`Gender: Trans`)
     await page.getByLabel('Trans').click()
   }
   
-  console.log(`Ethnicity: Not stated`)
+  logger.info(`Ethnicity: Not stated`)
   await page.getByRole('combobox', { name: 'Ethnicity' }).selectOption('Not stated')
 
-  console.log(`-- Postcode: ${data.postcode}`)
+  logger.info(`-- Postcode: ${data.postcode}`)
   await page.getByLabel('Postcode').fill(data.postcode)
   
-  console.log(`-- Address: ${data.address}`)
+  logger.info(`-- Address: ${data.address}`)
   await page.getByLabel('Address').fill(data.address)
   
-  console.log(`-- Consent Obtained: Yes`)
+  logger.info(`-- Consent Obtained: Yes`)
   await page.getByLabel('Yes').click()
 
-  console.log(`-- Entering GP Practice...`)
+  logger.info(`-- GP Practice: ${data.practice}`)
   await page.getByLabel('GP Practice').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
   await page.keyboard.type(data.practice, { delay: 10 })
-  console.log(`-- Waiting for practice popup...`)
+  logger.info(`-- Waiting for practice popup...`)
   await page.locator('selector=#ui-id-3').first().click({ timeout: 10000, trial: true })
-  console.log(`-- Selecting Practice...`)
+  logger.info(`-- Selecting Practice...`)
   await page.locator('selector=#ui-id-3 li a').first().click({ timeout: 3000 })
-  console.log(`-- Practice Selected!`)
+  logger.info(`-- Practice Selected!`)
 
-  console.log(`-- Save and enter another: yes`)
-  await page.getByLabel('Save and enter another').click()
+  if (argv.pause) {
+    await page.pause()
+  }
 
-  // await page.locator('selector=#submit').click()
+  if (argv.dryrun) {
+    logger.info(`-- Dry run, not submitting...`)
+  } else {
+    logger.info(`-- Submitting...`)
+    await page.locator('selector=#submit').click()
+    // TODO: check for redirect to success page
+  }
+
+  logger.info(`-- Success!`)
 }
 
-function writeOutput(timestamp: string, data): void {
-  if (!data.hasOwnProperty('status')) {
-    data.status = '';
-  }
+function writeOutput(data, status: string =''): void {
+  data.status = status
+  data.time = secondsElapsed()
 
-  const filePath = path.join('outputs', `${timestamp}.csv`);
+  const filePath = path.join(outputDir, `${timestamp}.csv`);
 
-  if (!fs.existsSync('outputs')) {
-    fs.mkdirSync('outputs');
-  }
-
-  const fileExists = fs.existsSync(filePath);
-
-  if (!fileExists) {
+  if (!fs.existsSync(filePath)) {
     const header = Object.keys(data).join(',');
     fs.writeFileSync(filePath, `${header}\n`);
   }
+
   const keys = Object.keys(data);
   const values = keys.map((key) => typeof data[key] === 'string' ? `"${data[key]}"` : data[key]);
   const line = values.join(',');
   fs.appendFileSync(filePath, `${line}\n`);
-}
-
-function getTimestamp(): string {
-  return new Date().toISOString().replace(/:/g, '-');
 }
 
 main()
