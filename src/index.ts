@@ -16,7 +16,7 @@ interface PatientData {
   staffRole: string;
   symptom: string;
   levyStatus: string;
-  quantity: number;
+  quantity: string;
   searchMedication: string;
   firstName: string;
   lastName: string;
