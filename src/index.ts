@@ -274,6 +274,10 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
   logger.info(`-- Referral Advice: no`)
   await page.getByRole('group', { name: 'Referral Advice' }).getByLabel('No', { exact: true }).click()
 
+  logger.info(`-- Resources provided: Other: None`)
+  await page.getByRole('radio', { name: 'Other If other please state', exact: true }).click()
+  await page.locator('input[name="ctrlRadio_867460_Other"]').fill('None')
+
   logger.info(`-- Medication: ${data.searchMedication}`)
   await page.getByLabel('Medication supplied', { exact: true }).click()
   await page.keyboard.down('Control');
@@ -292,6 +296,9 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
     logger.info(`-- Medication not found: ${data.searchMedication}`)
     throw new MedicineNotFoundError(`Medicine not found`)
   }
+
+  logger.info(`-- 2nd medicine supplied: No`)
+  await page.getByRole('group', { name: 'Medication' }).getByLabel('No').click()
 
   if (argv.pause) {
     await page.pause()
