@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx tsc && node dist/index.js"
+    "start": "npx tsc && node dist/index.js",
+    "consultation": "npx tsc && node dist/consultation.js"
   },
   "author": "",
   "license": "ISC",
