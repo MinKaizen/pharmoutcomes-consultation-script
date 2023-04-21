@@ -398,7 +398,7 @@ async function fillRegistration(page, data: PatientData) {
   logger.info(`-- Success!`)
 }
 
-function writeOutput(data, status: string =''): void {
+function writeOutput(data: PatientData, status: string =''): void {
   data.status = status
   data.time = secondsElapsed()
 
