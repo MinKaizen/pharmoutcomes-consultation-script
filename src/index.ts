@@ -48,7 +48,7 @@ const argv = yargs
 
 // Environment Variables
 const secret: string = process.env.secret ?? process.exit(1)
-const username: string = process.env.username ?? process.exit(1)
+const userLogin: string = process.env.userLogin ?? process.exit(1)
 const password: string = process.env.password ?? process.exit(1)
 const inputFilePath: string = process.env.inputFilePath ?? process.exit(1)
 const outputDir: string = process.env.outputDir ?? process.exit(1)
@@ -94,7 +94,7 @@ async function main() {
 
   const csvData: Array<PatientData> = await readInputFile(inputFilePath)
   let page = await newPage()
-  await login(page, username, password)
+  await login(page, userLogin, password)
 
   for (let i = 0; i < csvData.length; i++) {
     try {
@@ -166,10 +166,10 @@ async function newPage() {
   return browser.newPage()
 }
 
-async function login(page, username, password) {
+async function login(page, userLogin, password) {
   logger.info('Logging into Pharmoutcomes...')
   await page.goto('https://pharmoutcomes.org/pharmoutcomes/');
-  await page.locator('selector=#login-form-elements input[name=login_name]').fill(username)
+  await page.locator('selector=#login-form-elements input[name=login_name]').fill(userLogin)
   await page.locator('selector=#login-form-elements input[name=login_pwd]').fill(password)
   await page.locator('selector=#login-form-elements input[type=submit]').click()
   logger.info(`-- Switching to Meds2u account...`)
