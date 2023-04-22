@@ -434,7 +434,7 @@ async function fillRegistration(page, data: PatientData) {
   logger.info(`-- Name: ${data.firstName} ${data.lastName}`)
   await page.getByLabel('Name').fill(`${data.firstName} ${data.lastName}`)
 
-  logger.info(`-- Date of Birth: ${data.date}`)
+  logger.info(`-- Date of Birth: ${data.dob}`)
   await page.getByLabel('Date of Birth').click()
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
