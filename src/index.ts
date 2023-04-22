@@ -439,7 +439,7 @@ async function fillRegistration(page, data: PatientData) {
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
-  await page.keyboard.type(data.date, { delay: 10 })
+  await page.keyboard.type(data.dob, { delay: 10 })
   try {
     await page.locator('selector=#ui-datepicker-div').first().click({ timeout: 1000, trial: true })
   } catch (e) {
