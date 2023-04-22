@@ -114,7 +114,7 @@ async function main() {
     try {
       await fillConsultation(page, csvData[i])
     } catch (e) {
-      writeOutput(csvData[i], e.message.replace(/"/g, "'"))
+      writeOutput(csvData[i], e.message.replace(/"/g, "'").replace(/\n/g, ' '))
     }
   }
 }
@@ -145,14 +145,6 @@ async function readInputFile(filepath) {
   });
 
   return csvData
-}
-
-function bigError(e) {
-  logger.info(`==============================`)
-  logger.info(`=============ERROR============`)
-  logger.info(e)
-  logger.info(`=============ERROR============`)
-  logger.info(`==============================`)
 }
 
 async function registerSelectorLocator() {
@@ -341,8 +333,15 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
     if (page.url().includes(consultationErrorRedirect)) {
       logger.info(`-- Redirected back to consultation page! (Submission failed)`)
       const errors = await consultationErrors(page)
-      logger.info(errors)
-      throw new Error(`Submit Failed: ${JSON.stringify(errors).replace(/\n/g, ' ').replace(/"/g, "'")}`)
+      const errorsCombined = Object.entries(errors).reduce((carry, next) => {
+        if (next[1]) {
+          logger.info(`-- ${next[0]}: ${next[1]}`)
+          carry = carry ? `${carry}, ${next[0]}: ${next[1]}` : `${next[0]}: ${next[1]}`
+          carry = carry.replace('\n', ' ').replace('"','\'')
+        }
+        return carry
+      }, '')
+      throw new Error(`Submit Failed: ${errorsCombined}`)
     }
   }
 
