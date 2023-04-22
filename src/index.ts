@@ -8,6 +8,18 @@ const { createLogger, transports } = require('winston');
 const { combine, printf } = require('winston').format;
 require('dotenv').config();
 
+interface RegistrationError {
+  date: string;
+  name: string;
+  dob: string;
+  gender: string;
+  ethnicity: string;
+  postcode: string;
+  address: string;
+  consent: string;
+  gp: string;
+}
+
 interface ConsultationError {
   name: string;
   staffName: string;
@@ -79,6 +91,7 @@ class QuantityError extends Error { }
 const consultationUrl = 'https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew'
 const consultationErrorRedirect = 'services/enter/?xid=122581&xact=provisioncreate'
 const registrationUrl = 'https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122578&xid=122578&xact=provisionnew'
+const registrationErrorRedirect = 'pharmoutcomes/services/enter/?xid=122578&xact=provisioncreate'
 const timestamp = dateFormat(new Date(), 'yyyy-MM-dd___HH-mm-ss')
 const timeStartMilliseconds = Date.now()
 const secondsElapsed = () => Math.round((Date.now() - timeStartMilliseconds) / 1000)
@@ -341,7 +354,7 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
         }
         return carry
       }, '')
-      throw new Error(`Submit Failed: ${errorsCombined}`)
+      throw new Error(`Consultation Form Failed: ${errorsCombined}`)
     }
   }
 
@@ -478,10 +491,68 @@ async function fillRegistration(page, data: PatientData) {
   } else {
     logger.info(`-- Submitting...`)
     await page.locator('selector=#submit').click()
-    // TODO: check for redirect to success page
+    logger.info(`-- Waiting for DOM...`)
+    await page.waitForLoadState("domcontentloaded")
+    logger.info(`-- DOM Content loaded!`)
+
+    logger.info(`-- Checking current URL...`)
+    logger.info(`-- ${page.url()}`)
+    if (page.url().includes(registrationErrorRedirect)) {
+      logger.info(`-- Redirected back to registration page! (Submission failed)`)
+      const errors = await registrationErrors(page)
+      const errorsCombined = Object.entries(errors).reduce((carry, next) => {
+        if (next[1]) {
+          logger.info(`-- ${next[0]}: ${next[1]}`)
+          carry = carry ? `${carry}, ${next[0]}: ${next[1]}` : `${next[0]}: ${next[1]}`
+          carry = carry.replace('\n', ' ').replace('"','\'')
+        }
+        return carry
+      }, '')
+      throw new Error(`Registration Form Failed: ${errorsCombined}`)
+    }
+    
   }
 
   logger.info(`-- Success!`)
+}
+
+async function registrationErrors(page): Promise<RegistrationError> {
+  logger.info(`Compiling errors:`)
+  let errors: RegistrationError = {
+    date: '',
+    name: '',
+    dob: '',
+    gender: '',
+    ethnicity: '',
+    postcode: '',
+    address: '',
+    consent: '',
+    gp: '',
+  }
+
+  logger.info(`-- Collecting Question Elements...`)
+  const questionsArray = await page.locator("selector=div.provisionbody.required").all()
+
+  logger.info(`-- Reading errors...`)
+  await Promise.all([
+    { name: "date", question: questionsArray[0] },
+    { name: "name", question: questionsArray[1] },
+    { name: "dob", question: questionsArray[2] },
+    { name: "gender", question: questionsArray[3] },
+    { name: "ethnicity", question: questionsArray[4] },
+    { name: "postcode", question: questionsArray[5] },
+    { name: "address", question: questionsArray[6] },
+    { name: "consent", question: questionsArray[7] },
+    { name: "gp", question: questionsArray[8] },
+  ].map(async (obj) => {
+    if (await obj.question.locator("selector=p.error").isVisible()) {
+      errors[obj.name] = await obj.question
+        .locator("selector=p.error")
+        .innerText()
+    }
+  }))
+
+  return errors
 }
 
 function writeOutput(data: PatientData, status: string =''): void {
