@@ -97,12 +97,6 @@ const logger = createLogger({
 
 // Main Function
 async function main() {
-  // TEMP
-  if (!argv.dryrun) {
-    logger.error(`Running without --dryrun is currently disabled during development. Aborting...`)
-    process.exit(1)
-  }
-
   if (!fs.existsSync(inputFilePath)) {
     logger.error(`File not found: ${inputFilePath}`);
     process.exit(1);
