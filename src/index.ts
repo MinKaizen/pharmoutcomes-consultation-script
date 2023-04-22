@@ -8,6 +8,22 @@ const { createLogger, transports } = require('winston');
 const { combine, printf } = require('winston').format;
 require('dotenv').config();
 
+interface ConsultationError {
+  name: string;
+  staffName: string;
+  staffRole: string;
+  referredBy: string;
+  symptom: string;
+  consultationTime: string;
+  resource: string;
+  purchasedOrSupplied: string;
+  levyStatus: string;
+  medication: string;
+  quantity: string;
+  secondMedication: string;
+  referralNecessary: string;
+}
+
 interface PatientData {
   searchName: string;
   date: string;
@@ -57,8 +73,12 @@ const outputDir: string = process.env.outputDir ?? process.exit(1)
 class PatientNotFoundError extends Error { }
 class MedicineNotFoundError extends Error { }
 class PatientRegisteredButNotFound extends Error { }
+class QuantityError extends Error { }
 
 // Constants
+const consultationUrl = 'https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew'
+const consultationErrorRedirect = 'services/enter/?xid=122581&xact=provisioncreate'
+const registrationUrl = 'https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122578&xid=122578&xact=provisionnew'
 const timestamp = dateFormat(new Date(), 'yyyy-MM-dd___HH-mm-ss')
 const timeStartMilliseconds = Date.now()
 const secondsElapsed = () => Math.round((Date.now() - timeStartMilliseconds) / 1000)
@@ -101,7 +121,6 @@ async function main() {
       await fillConsultation(page, csvData[i])
     } catch (e) {
       writeOutput(csvData[i], e.message.replace(/"/g, "'"))
-      bigError(e.message)
     }
   }
 }
@@ -204,7 +223,7 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
   logger.info(`Consultation for: ${data.searchName} (${data.dob})`)
   logger.info(`===============================`)
   logger.info(`Navigating to Consultations...`)
-  await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122581&xid=122581&xact=provisionnew');
+  await page.goto(consultationUrl);
   await handleSecretWord(page, secret)
 
   logger.info(`Filling in Consultation Data...`)
@@ -268,9 +287,6 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
   logger.info(`-- Levy Status: ${data.levyStatus}`)
   await page.getByRole('combobox', { name: 'Levy Status' }).selectOption(data.levyStatus)
 
-  logger.info(`-- Quantity: ${data.quantity}`)
-  await page.getByRole('textbox', { name: 'Quantity' }).fill(data.quantity)
-
   logger.info(`-- Referral Advice: no`)
   await page.getByRole('group', { name: 'Referral Advice' }).getByLabel('No', { exact: true }).click()
 
@@ -297,6 +313,19 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
     throw new MedicineNotFoundError(`Medicine not found`)
   }
 
+  logger.info(`-- Quantity: ${data.quantity}`)
+  await page.getByRole('textbox', { name: 'Quantity' }).fill(data.quantity)
+
+  try {
+    logger.info(`-- Waiting for quantity error...`)
+    await page.locator('#ctrlLookup_115624_QuantityErr').click({trial: true, timeout: 1000})
+    logger.info(`-- Quantity Error. Aborting...`)
+    throw new QuantityError('Quantity Error')
+  } catch (e) {
+    // No Quantity Error. Continue...
+    logger.info(`-- Success! No quantity errors`)
+  }
+
   logger.info(`-- 2nd medicine supplied: No`)
   await page.getByRole('group', { name: 'Medication' }).getByLabel('No').click()
 
@@ -309,11 +338,68 @@ async function fillConsultation(page, data: PatientData, isAfterRegister = false
   } else {
     logger.info(`-- Submitting...`)
     await page.getByRole('button', { name: 'Save' }).click()
-    // TODO: check for redirect to success page
+
+    logger.info(`-- Waiting for DOM...`)
+    await page.waitForLoadState('domcontentloaded')
+    logger.info(`-- DOM Content loaded!`)
+
+    logger.info(`-- Checking current URL...`)    
+    if (page.url().includes(consultationErrorRedirect)) {
+      logger.info(`-- Redirected back to consultation page! (Submission failed)`)
+      const errors = await consultationErrors(page)
+      logger.info(errors)
+      throw new Error(`Submit Failed: ${JSON.stringify(errors).replace(/\n/g, ' ').replace(/"/g, "'")}`)
+    }
   }
 
   logger.info(`-- Success!`)
   writeOutput(data, 'Success')
+}
+
+async function consultationErrors(page): Promise<ConsultationError> {
+  logger.info(``)
+  logger.info(`Compiling errors:`)
+  let errors: ConsultationError = {
+    name: '',
+    staffName: '',
+    staffRole: '',
+    referredBy: '',
+    symptom: '',
+    consultationTime: '',
+    resource: '',
+    purchasedOrSupplied: '',
+    levyStatus: '',
+    medication: '',
+    quantity: '',
+    secondMedication: '',
+    referralNecessary: '',
+  }
+  
+  logger.info(`-- Collecting Question Elements...`)
+  const questionsArray = await page.locator('selector=div.provisionquestion div.provisionbody.required').all()
+
+  logger.info(`-- Reading errors...`)
+  await Promise.all([
+    {name: 'name', question: questionsArray[0]},
+    {name: 'staffName', question: questionsArray[1]},
+    {name: 'staffRole', question: questionsArray[2]},
+    {name: 'referredBy', question: questionsArray[3]},
+    {name: 'symptom', question: questionsArray[4]},
+    {name: 'consultationTime', question: questionsArray[5]},
+    {name: 'resource', question: questionsArray[6]},
+    {name: 'purchasedOrSupplied', question: questionsArray[7]},
+    {name: 'levyStatus', question: questionsArray[8]},
+    {name: 'medication', question: questionsArray[9]},
+    {name: 'quantity', question: questionsArray[10]},
+    {name: 'secondMedication', question: questionsArray[11]},
+    {name: 'referralNecessary', question: questionsArray[17]},
+  ].map(async (obj) => {
+    if (await obj.question.locator('selector=p.error').isVisible()) {
+      errors[obj.name] = await obj.question.locator('selector=p.error').innerText()
+    }
+  }))
+
+  return errors
 }
 
 async function fillRegistration(page, data: PatientData) {
@@ -322,7 +408,7 @@ async function fillRegistration(page, data: PatientData) {
   logger.info(`Registration for: ${data.firstName} ${data.lastName} (${data.dob})`)
   logger.info(`===============================`)
   logger.info(`Navigating to Registration...`)
-  await page.goto('https://pharmoutcomes.org/pharmoutcomes/services/enter?id=122578&xid=122578&xact=provisionnew')
+  await page.goto(registrationUrl)
   await handleSecretWord(page, secret)
 
   logger.info(`Filling in registration data...`)
